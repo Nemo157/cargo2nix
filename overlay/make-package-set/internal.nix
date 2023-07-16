@@ -55,7 +55,60 @@ lib.fix' (self:
       mkRustCrate = rustLib.runOverride combinedOverride mkRustCrate;
       rustLib = rustLib // {
         inherit fetchCrateAlternativeRegistry;
-        fetchCrateLocal = path: path;
+        fetchCrateLocal = { name, version, workspaceSrc, path }:
+          let
+            rustPlatform = pkgs.makeRustPlatform {
+              cargo = rustToolchain;
+              rustc = rustToolchain;
+            };
+          in rustPlatform.buildRustPackage {
+              src = workspaceSrc;
+              name = "source-${name}-${version}";
+              cargoLock = {
+                lockFile = "${workspaceSrc}/Cargo.lock";
+                allowBuiltinFetchGit = true;
+              };
+              doCheck = false;
+              nativeBuildInputs = [ pkgs.jq pkgs.remarshal ];
+              buildPhase = ''
+                set -euo pipefail
+                pushd ${path}
+                cargo metadata --format-version 1 | jq '.resolve.root as $root | .packages[] | select(.id == $root)' \
+                  | jq '{package: {name: .name, authors: .authors, categories: .categories, description: .description, documentation: .documentation, edition: .edition, exclude: .exclude, homepage: .homepage, include: .include, keywords: .keywords, license: .license, publish: .publish, readme: .readme, repository: .repository, version: .version,}}' \
+                  | jq 'del(..|nulls)' \
+                  > Cargo.metadata.json
+                mv Cargo.toml Cargo.original.toml
+                # Remarshal was failing on table names of the form:
+                # [key."cfg(foo = \"a\", bar = \"b\"))".path]
+                # The regex to find or deconstruct these strings must find, in order,
+                # these components: open bracket, open quote, open escaped quote, and
+                # their closing pairs.  Because each quoted path can contain multiple
+                # quote escape pairs, a loop is employed to match the first quote escape,
+                # which the sed will replace with a single quote equivalent until all
+                # escaped quote pairs are replaced.  The grep regex is identical to the
+                # sed regex but does not destructure the match into groups for
+                # restructuring in the replacement.
+                while grep '\[[^"]*"[^\\"]*\\"[^\\"]*\\"[^"]*[^]]*\]' Cargo.original.toml; do
+                  sed -i -r 's/\[([^"]*)"([^\\"]*)\\"([^\\"]*)\\"([^"]*)"([^]]*)\]/[\1"\2'"'"'\3'"'"'\4"\5]/g' Cargo.original.toml
+                done;
+                remarshal -if toml -of json Cargo.original.toml \
+                  | jq "{ package: .package
+                        , lib: .lib
+                        , bin: .bin
+                        , test: .test
+                        , example: .example
+                        , bench: .bench
+                        } | with_entries(select( .value != null ))
+                        " \
+                  | jq "del(.[][] | nulls)" > Cargo.t.json
+                jq -s ".[0] * .[1]" Cargo.t.json Cargo.metadata.json | jq "del(.[][] | nulls)" > Cargo.json
+                cat Cargo.json | remarshal -if json -of toml > Cargo.toml
+                popd
+              '';
+              installPhase = ''
+                cp -r ${path} $out
+              '';
+            };
       };
       ${ if release == null then null else "release" } = release;
       ${ if rootFeatures == null then null else "rootFeatures" } = rootFeatures;

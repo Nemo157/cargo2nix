@@ -66,11 +66,12 @@ in
       {%- endif -%}
     };
     {%- elif crate.source.Local.path %}
-    {%- if crate.source.Local.path == "." %}
-    src = fetchCrateLocal workspaceSrc;
-    {%- else %}
-    src = fetchCrateLocal (workspaceSrc + "/{{ crate.source.Local.path }}");
-    {%- endif %}
+    src = fetchCrateLocal {
+      inherit workspaceSrc;
+      name = "{{ crate.name }}";
+      version = "{{ crate.version }}";
+      path = "{{ crate.source.Local.path }}";
+    };
     {%- elif crate.source.Registry.index %}
     src = fetchCrateAlternativeRegistry {
       index = {{ crate.source.Registry.index }};
