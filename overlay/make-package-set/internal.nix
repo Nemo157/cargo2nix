@@ -55,7 +55,37 @@ lib.fix' (self:
       mkRustCrate = rustLib.runOverride combinedOverride mkRustCrate;
       rustLib = rustLib // {
         inherit fetchCrateAlternativeRegistry;
-        fetchCrateLocal = path: path;
+        fetchCrateLocal = workspace: path:
+          let
+            name = (builtins.fromTOML (builtins.readFile "${workspace}/${path}/Cargo.toml")).package.name;
+            rustPlatform = pkgs.makeRustPlatform {
+              cargo = rustToolchain;
+              rustc = rustToolchain;
+            };
+            package = rustPlatform.buildRustPackage {
+              src = workspace;
+              name = "${name}.crate.tar.gz";
+              cargoLock = {
+                lockFile = "${workspace}/Cargo.lock";
+                allowBuiltinFetchGit = true;
+              };
+              doCheck = false;
+              buildPhase = ''
+                cargo package --manifest-path ${path}/Cargo.toml --no-verify --no-metadata --allow-dirty --locked --offline
+              '';
+              installPhase = ''
+                mv target/package/*.crate $out
+              '';
+            };
+          in stdenv.mkDerivation {
+            name = "${name}-source";
+            src = package;
+            installPhase = ''
+              ls -al
+              mkdir $out
+              mv * $out
+            '';
+          };
       };
       ${ if release == null then null else "release" } = release;
       ${ if rootFeatures == null then null else "rootFeatures" } = rootFeatures;

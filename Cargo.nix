@@ -367,7 +367,7 @@ in
     name = "cargo2nix";
     version = "0.11.0";
     registry = "unknown";
-    src = fetchCrateLocal workspaceSrc;
+    src = fetchCrateLocal workspaceSrc ".";
     dependencies = {
       anyhow = rustPackages."registry+https://github.com/rust-lang/crates.io-index".anyhow."1.0.57" { inherit profileName; };
       cargo = rustPackages."registry+https://github.com/rust-lang/crates.io-index".cargo."0.70.1" { inherit profileName; };
